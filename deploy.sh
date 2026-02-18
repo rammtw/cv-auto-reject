@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+export PATH=$PATH:/usr/local/go/bin:/usr/local/bin
+
 cd ~/cv-auto-reject
 
 # Backend

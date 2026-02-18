@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { API_URL } from "./config";
 
-type State = "idle" | "uploading" | "done" | "error";
+type State = "idle" | "uploading" | "analyzing" | "done" | "error";
 
 const MAX_SIZE_BYTES = 5 * 1024 * 1024;
 
@@ -21,6 +21,27 @@ const colors = {
     rejectBorder: "#F5C6C6",
 };
 
+const analyzeSteps = [
+    "Загрузка резюме...",
+    "Разбор PDF...",
+    "Поиск ключевых слов...",
+    "Анализ опыта работы...",
+    "Оценка навыков...",
+    "Сравнение с идеальным кандидатом...",
+    "Проверка soft skills...",
+    "Консультация с ИИ-рекрутером...",
+    "Подсчёт лет в Excel...",
+    "Финальное решение...",
+];
+
+function getStepLabel(progress: number): string {
+    const idx = Math.min(
+        Math.floor((progress / 100) * analyzeSteps.length),
+        analyzeSteps.length - 1
+    );
+    return analyzeSteps[idx];
+}
+
 const App: React.FC = () => {
     const [file, setFile] = useState<File | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -30,17 +51,48 @@ const App: React.FC = () => {
     const [btnHover, setBtnHover] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // Буфер для ответа бэкенда — храним пока идёт анимация
+    const pendingResult = useRef<{ ok: boolean; message?: string; error?: string } | null>(null);
+    const fakeDuration = useRef<number>(0);
+
+    // Прогресс-бар: работает в состояниях "uploading" и "analyzing"
     useEffect(() => {
         let timer: number | undefined;
-        if (state === "uploading") {
-            setProgress(0);
+        if (state === "uploading" || state === "analyzing") {
+            if (state === "uploading") {
+                // Начало — генерируем случайную длительность 5–15 сек
+                fakeDuration.current = 5000 + Math.random() * 10000;
+                setProgress(0);
+            }
+
             const start = Date.now();
-            const duration = 4000;
+            const duration = fakeDuration.current;
+
             timer = window.setInterval(() => {
                 const elapsed = Date.now() - start;
-                const p = Math.min(100, Math.round((elapsed / duration) * 100));
+                // Нелинейный прогресс — замедляется к концу для реализма
+                const linear = Math.min(1, elapsed / duration);
+                const eased = linear < 0.8
+                    ? linear * 1.1          // быстро до 88%
+                    : 0.88 + (linear - 0.8) * 0.6; // медленно до 100%
+                const p = Math.min(100, Math.round(eased * 100));
                 setProgress(p);
-                if (p >= 100) window.clearInterval(timer);
+
+                if (p >= 100) {
+                    window.clearInterval(timer);
+                    // Анимация завершена — показываем результат
+                    const result = pendingResult.current;
+                    if (result) {
+                        if (result.ok) {
+                            setState("done");
+                            setMessage(result.message || "Резюме отклонено по неизвестной причине.");
+                        } else {
+                            setState("error");
+                            setError(result.error || "Ошибка загрузки файла.");
+                        }
+                        pendingResult.current = null;
+                    }
+                }
             }, 80);
         }
         return () => {
@@ -98,17 +150,25 @@ const App: React.FC = () => {
 
             const data = await res.json();
 
-            if (!res.ok) {
-                setState("error");
-                setError(data.error || "Ошибка загрузки файла.");
-                return;
-            }
+            // Сохраняем результат в буфер — НЕ показываем сразу
+            pendingResult.current = {
+                ok: res.ok,
+                message: data.message,
+                error: data.error,
+            };
 
-            setState("done");
-            setMessage(data.message || "Резюме отклонено по неизвестной причине.");
+            // Переключаемся в "analyzing" — прогресс-бар продолжает работу
+            // (если ещё не дошёл до 100%)
+            if (progress < 100) {
+                setState("analyzing");
+            }
         } catch {
-            setState("error");
-            setError("Не удалось отправить файл. Проверьте подключение к серверу.");
+            // Сетевая ошибка — тоже ждём конца анимации
+            pendingResult.current = {
+                ok: false,
+                error: "Не удалось отправить файл. Проверьте подключение к серверу.",
+            };
+            setState("analyzing");
         }
     };
 
@@ -118,10 +178,11 @@ const App: React.FC = () => {
         setMessage(null);
         setState("idle");
         setProgress(0);
+        pendingResult.current = null;
         if (fileInputRef.current) fileInputRef.current.value = "";
     };
 
-    const uploading = state === "uploading";
+    const isProcessing = state === "uploading" || state === "analyzing";
     const done = state === "done";
 
     return (
@@ -163,15 +224,15 @@ const App: React.FC = () => {
 
                 <form onSubmit={handleSubmit}>
                     {/* Зона выбора файла — скрываем после решения */}
-                    {!done && (
+                    {!done && !isProcessing && (
                         <div
-                            onClick={() => !uploading && fileInputRef.current?.click()}
+                            onClick={() => fileInputRef.current?.click()}
                             style={{
                                 border: `2px dashed ${file ? colors.green : colors.border}`,
                                 borderRadius: "12px",
                                 padding: "32px 24px",
                                 textAlign: "center",
-                                cursor: uploading ? "not-allowed" : "pointer",
+                                cursor: "pointer",
                                 background: file ? colors.greenLight : colors.white,
                                 transition: "all 0.2s ease",
                                 marginBottom: "24px",
@@ -182,7 +243,6 @@ const App: React.FC = () => {
                                 type="file"
                                 accept="application/pdf"
                                 onChange={handleFileChange}
-                                disabled={uploading}
                                 style={{ display: "none" }}
                             />
                             {file ? (
@@ -210,7 +270,7 @@ const App: React.FC = () => {
                     )}
 
                     {/* Прогресс-бар */}
-                    {state === "uploading" && (
+                    {isProcessing && (
                         <div style={{ marginBottom: "24px" }}>
                             <div
                                 style={{
@@ -238,7 +298,7 @@ const App: React.FC = () => {
                                     textAlign: "right",
                                 }}
                             >
-                                Анализ резюме... {progress}%
+                                {getStepLabel(progress)} {progress}%
                             </div>
                         </div>
                     )}
@@ -261,7 +321,7 @@ const App: React.FC = () => {
                         </div>
                     )}
 
-                    {/* Результат-отказ — КРАСНЫЙ */}
+                    {/* Результат-отказ */}
                     {message && (
                         <div
                             style={{
@@ -294,11 +354,10 @@ const App: React.FC = () => {
 
                     {/* Кнопки */}
                     <div style={{ display: "flex", gap: "12px" }}>
-                        {/* Кнопка отправки — скрываем после решения */}
-                        {!done && (
+                        {!done && !isProcessing && (
                             <button
                                 type="submit"
-                                disabled={uploading || !file}
+                                disabled={!file}
                                 onMouseEnter={() => setBtnHover(true)}
                                 onMouseLeave={() => setBtnHover(false)}
                                 style={{
@@ -307,24 +366,23 @@ const App: React.FC = () => {
                                     borderRadius: "10px",
                                     border: "none",
                                     background:
-                                        uploading || !file
+                                        !file
                                             ? "#CCCCCC"
                                             : btnHover
                                                 ? colors.greenHover
                                                 : colors.green,
                                     color: colors.white,
-                                    cursor: uploading || !file ? "not-allowed" : "pointer",
+                                    cursor: !file ? "not-allowed" : "pointer",
                                     fontWeight: 700,
                                     fontSize: "18px",
                                     transition: "background 0.2s ease",
                                     letterSpacing: "0.3px",
                                 }}
                             >
-                                {uploading ? "Отправка..." : "Отправить резюме"}
+                                Отправить резюме
                             </button>
                         )}
 
-                        {/* Кнопка «Попробовать снова» — после решения или ошибки */}
                         {(done || state === "error") && (
                             <button
                                 type="button"

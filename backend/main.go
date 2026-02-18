@@ -113,9 +113,6 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	delay := 3 + rand.Intn(3) // 3,4,5
-	time.Sleep(time.Duration(delay) * time.Second)
-
 	msg := rejectionMessages[rand.Intn(len(rejectionMessages))]
 
 	w.Header().Set("Content-Type", "application/json")

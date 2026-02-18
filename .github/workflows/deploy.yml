@@ -18,4 +18,6 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd ~/cv-auto-reject
+            git pull origin main
+            chmod +x deploy.sh
             ./deploy.sh

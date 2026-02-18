@@ -2,7 +2,6 @@
 set -e
 
 cd ~/cv-auto-reject
-git pull origin main
 
 # Backend
 cd backend

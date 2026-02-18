@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { API_URL } from "./config";
 
 type State = "idle" | "uploading" | "done" | "error";
 
@@ -90,7 +91,7 @@ const App: React.FC = () => {
             const formData = new FormData();
             formData.append("file", file);
 
-            const res = await fetch("http://localhost:8080/api/upload", {
+            const res = await fetch(`${API_URL}/api/upload`, {
                 method: "POST",
                 body: formData,
             });
